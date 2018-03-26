@@ -7,6 +7,8 @@
 4 args:
 """
 
+# Aja esim nain, Kuvat-hakemistossa
+# python ~/git/python/src/filelist.py Valokuvia 2021
 
 import os
 import sys
@@ -16,6 +18,7 @@ import subprocess
 b2cmd_base = 'b2'
 b2cmd_command = 'upload-file'
 
+#logFile = '/var/tmp/B2App.log.test'
 logFile = '/var/tmp/B2App.log'
 
 # this logging stuff was shamelessly copypasted from somewhere. Lost the link already :(
@@ -26,12 +29,23 @@ hdlr.setFormatter(formatter)
 logger.addHandler(hdlr)
 logger.setLevel(logging.INFO)
 
+def replaceIfNeeded(string, sChar, rChar):
+    if sChar in string:
+        print(string + " contains " + sChar)
+        string = string.replace(sChar, rChar)
+    return string
+
 def createB2Command(bucket, filename):
     """
     Create a command that calls the b2 python script
     """
-    b2cmd = b2cmd_base + ' ' + b2cmd_command + ' ' + bucket + ' "' + filename + '" "' + filename + '"'
-    # print 'B2: "' + b2cmd + '"'
+    targetName = filename
+    targetName = replaceIfNeeded(targetName, "\xe4", "a")
+    targetName = replaceIfNeeded(targetName, "\xf6", "o")
+    targetName = replaceIfNeeded(targetName, "\xc4", "A")
+    targetName = replaceIfNeeded(targetName, "\xd6", "O")
+
+    b2cmd = b2cmd_base + ' ' + b2cmd_command + ' ' + bucket + ' "' + filename + '" "' + targetName + '"'
     return b2cmd
 
 def printHelp():
@@ -55,7 +69,7 @@ def uploadFile(f):
     This method also calculates the file size and prints and returns it. I know, it's unorthodox to do many things
     but I'm now too tired to fix this
     """
-    filename = dirpath + '/' + f
+    filename = f
     b2cmd = createB2Command(bucket, filename)
     print b2cmd
     logLine("Starting to handle " + filename)
@@ -63,6 +77,7 @@ def uploadFile(f):
     print("File size: " + str(size) + "M")
     result = 0
     result = os.system(b2cmd)
+#   print b2cmd
     if result != 0:
         msg = "Handling " + filename + " failed with exit code " + str(result) + ". Exiting.";
         logLine(msg)
@@ -71,7 +86,7 @@ def uploadFile(f):
     logLine("Done handling file " + filename)
     return size
 
-def parseLogFile():
+def parseLogFile(startdir):
     """
     This tries to parse log file and to find out what files are not yet uploaded into the
     b2. This is still under construction
@@ -81,19 +96,10 @@ def parseLogFile():
     # Handling {file} failed with exit code
     # Done handling file {file}
     # Working in {dir} ended
-    dirdict = {}
     with open(logFile) as f:
         for line in f:
-            line = line.rstrip()
-            if "Starting to work in " in line:
-                dir = line.split("work in", 1)[1]
-                print "startdir'" + dir + "'"
-            if "Done handling file" in line:
-                doneFile = line.split("Done handling file", 1)[1]
-                print "donefile'" + doneFile + "'"
-            if "Working in" in line:
-                doneDir = line.split("Working in ", 1)[1].split(" ended", 1)[0]
-                print "donedir'" + doneDir + "'"
+            donefiles = [line.split("Done handling file", 1)[1].strip() for line in f if "Done handling file" in line]
+    return donefiles
 
 def du(path):
     """
@@ -117,7 +123,7 @@ if bucket == "--parse":
     Parse log files to find out what files are already uploaded
     Under construction..
     """
-    parseLogFile()
+    parseLogFile(sys.argv[2])
     sys.exit(0)
 
 if len(sys.argv) != 3:
@@ -137,10 +143,20 @@ logLine("Starting to work in " + os.getcwd())
 sizeLeft = du(basedir)
 print("Directory size: " + str(sizeLeft) + "M")
 
+files = [os.path.join(basedir, f) for f in os.listdir(basedir) if os.path.isfile(os.path.join(basedir, f))]
+print("Files: " + str(files))
+
+# Flat dirs
+# for f in sorted(files):
+#     size = uploadFile(f)
+#     sizeLeft = sizeLeft - size
+#     print "Size left: " + str(sizeLeft) + "M"
+
+# Go directories recursively
 for dirpath, dirs, files in os.walk(basedir):
     dirs.sort()
     for f in sorted(files) :
-        size = uploadFile(f)
+        size = uploadFile(os.path.join(dirpath, f))
         sizeLeft = sizeLeft - size
         print "Size left: " + str(sizeLeft) + "M"
 
